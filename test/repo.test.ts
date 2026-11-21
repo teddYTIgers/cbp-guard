@@ -68,6 +68,21 @@ describe("package.json and server.json", () => {
 });
 
 describe("customer copy (OWNER-COPY)", () => {
+  it("README has no internal release, owner, bot or approval notes", () => {
+    const readme = read("README.md");
+    for (const bad of [
+      /not published/i,
+      /owner/i,
+      /\bbots?\b/i,
+      /\bapprov(e|ed|al)\b/i,
+      /not done yet/i,
+      /remaining steps/i,
+    ])
+      expect(readme).not.toMatch(bad);
+    expect(readme).toContain("npm install cbp-guard");
+    expect(readme).toContain("npx cbp-guard mcp");
+  });
+
   it("README first line and server.json description are the drafted strings", () => {
     const first = read("README.md")
       .split("\n")

@@ -189,14 +189,16 @@ describe("CBG1-2 MCP server daily budget (CBP_GUARD_DAILY_BUDGET_USD)", () => {
 });
 
 describe("CBG1-3 publishing needs the protected environment", () => {
-  it("publish job uses environment npm-publish and the README makes it a required step", () => {
+  it("publish job uses environment npm-publish and docs/RELEASING.md makes it a required setting", () => {
     const wf = read(".github/workflows/publish.yml");
     expect(wf).toMatch(/^\s+environment: npm-publish\s*$/m);
-    const readme = read("README.md");
-    expect(readme).toContain("**Required, before step 3:**");
-    expect(readme).toContain("required reviewer `teddYTIgers`");
-    expect(readme).toContain("only tags matching `v*.*.*`");
-    expect(readme).not.toMatch(/Optionally add a required reviewer/);
+    const releasing = read("docs/RELEASING.md");
+    expect(releasing).toContain("**Required:** environment `npm-publish`");
+    expect(releasing).toContain("required reviewer `teddYTIgers`");
+    expect(releasing).toContain("only tags matching `v*.*.*`");
+    expect(releasing).not.toMatch(/Optionally add a required reviewer/);
+    const pkg = JSON.parse(read("package.json"));
+    expect(pkg.files).not.toContain("docs");
   });
 });
 

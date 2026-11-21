@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { generatePrivateKey } from "viem/accounts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { main } from "../src/cli.js";
@@ -52,7 +53,7 @@ describe("no key, signature or env value in output", () => {
 
   it("cli --version and usage", async () => {
     expect(await main(["--version"])).toBe(0);
-    expect(out.trim()).toBe("0.1.0");
+    expect(out.trim()).toBe(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version);
     out = "";
     expect(await main(["nope"])).toBe(2);
     expect(out).toContain("cbp-guard mcp");

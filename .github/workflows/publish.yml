@@ -1,9 +1,10 @@
-# npm publish via npm trusted publishing (OIDC). NOT USED YET.
+# npm publish via npm trusted publishing (OIDC), with provenance.
 #
-# This workflow stays unused until the owner (1) configures the trusted publisher on npmjs.com for
-# package `cbp-guard` / account `teddytigers` / repo `teddYTIgers/cbp-guard` / workflow `publish.yml`,
-# and (2) approves the first publish. There is no NPM_TOKEN: npm exchanges the GitHub OIDC token for a
-# short-lived publish credential. It never runs on push to main: manual dispatch or a v* tag only.
+# The trusted publisher is configured on npmjs.com for package `cbp-guard` (account `teddytigers`,
+# repo `teddYTIgers/cbp-guard`, workflow `publish.yml`, environment `npm-publish`). The job runs in the
+# protected environment `npm-publish` (required reviewer teddYTIgers; deployments from v*.*.* tags
+# only). There is no NPM_TOKEN: npm exchanges the GitHub OIDC token for a short-lived publish
+# credential. It never runs on push to main: manual dispatch or a v*.*.* tag only.
 name: publish
 
 on:
