@@ -1,9 +1,21 @@
+import { readFileSync } from "node:fs";
 import { encodePaymentRequiredHeader } from "@x402/core/http";
 import { describe, expect, it } from "vitest";
 import { CBP_PAYTO, CbpClient, CbpError, normalizeKnownRecipients } from "../src/client.js";
 import { FAKE_SIGNATURE, fakeCbp, fakePaymentClient, KNOWN, paymentRequired, SELLER, walletBody } from "./helpers.js";
 
 describe("CbpClient", () => {
+  it("sends User-Agent cbp-guard/<package.json version> on every CertBeforePay call, paid and unpaid", async () => {
+    const version = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
+    const cbp = fakeCbp((path) => ({ status: 200, body: path === "/v1/wallet/check" ? walletBody("clear") : {} }));
+    const c = new CbpClient({ paymentClient: fakePaymentClient(), fetch: cbp.fetch });
+    await c.walletCheck({ address: SELLER });
+    await c.gate({ content: "hi" });
+    await c.peerChallenge({ certificate: {} });
+    expect(cbp.calls).toHaveLength(6);
+    for (const call of cbp.calls) expect(call.headers["user-agent"]).toBe(`cbp-guard/${version}`);
+  });
+
   it("wallet check: unpaid 402 -> pays $0.01 to CertBeforePay -> returns body; known_recipients forwarded", async () => {
     const cbp = fakeCbp(() => ({ status: 200, body: walletBody("clear") }));
     const pay = fakePaymentClient();

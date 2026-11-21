@@ -59,7 +59,10 @@ export interface GuardOptions extends Omit<CbpClientOptions, "paymentClient"> {
   knownRecipients?: string[] | (() => string[] | Promise<string[]>);
   /** Skip the check for payments below this many USD (USDC only). Default 0: check every payment. */
   minAmountUsd?: number;
-  /** Cap on wallet-check spend per UTC day in USD. Default: no cap. When reached -> failMode. */
+  /**
+   * Cap on wallet-check spend per UTC day in USD (per guard instance, in memory). Default $1.00
+   * (100 paid checks); cache hits and skips cost nothing. When reached -> failMode. Infinity removes the cap.
+   */
   dailyBudgetUsd?: number;
   /** Cache real verdicts per address for this long. Default 5 minutes, max 15 minutes, 0 disables. */
   cacheTtlMs?: number;
@@ -71,6 +74,7 @@ export interface GuardOptions extends Omit<CbpClientOptions, "paymentClient"> {
   now?: () => number;
 }
 
+export const DEFAULT_DAILY_BUDGET_USD = 1;
 export const DEFAULT_CACHE_TTL_MS = 5 * 60_000;
 export const MAX_CACHE_TTL_MS = 15 * 60_000;
 const CHECK_COST_USD = 0.01;
@@ -108,8 +112,9 @@ export class CbpGuard {
   private readonly cache = new Map<string, CacheEntry>();
   private readonly skip: Set<string>;
   private readonly ttl: number;
+  private readonly budget: number;
   private spendDay = "";
-  private spentUsd = 0;
+  private paidChecks = 0;
 
   constructor(paymentClient: PaymentClientLike, opts: GuardOptions = {}) {
     this.client = new CbpClient({ ...opts, paymentClient });
@@ -117,6 +122,10 @@ export class CbpGuard {
     this.skip = new Set([CBP_PAYTO, ...this.client.cbpPayTo, ...(opts.skipPayTo ?? [])].map((a) => a.toLowerCase()));
     const ttl = opts.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
     this.ttl = Math.max(0, Math.min(ttl, MAX_CACHE_TTL_MS));
+    const budget = opts.dailyBudgetUsd ?? DEFAULT_DAILY_BUDGET_USD;
+    if (typeof budget !== "number" || Number.isNaN(budget) || budget < 0)
+      throw new CbpError("invalid_input", "dailyBudgetUsd must be a number >= 0 (Infinity for no cap)");
+    this.budget = budget;
   }
 
   private now(): number {
@@ -130,13 +139,13 @@ export class CbpGuard {
   }
 
   private budgetAllows(): boolean {
-    const cap = this.opts.dailyBudgetUsd;
+    const cap = this.budget;
     const day = new Date(this.now()).toISOString().slice(0, 10);
     if (day !== this.spendDay) {
       this.spendDay = day;
-      this.spentUsd = 0;
+      this.paidChecks = 0;
     }
-    return cap === undefined || this.spentUsd + CHECK_COST_USD <= cap + 1e-9;
+    return (this.paidChecks + 1) * CHECK_COST_USD <= cap + 1e-9;
   }
 
   private belowMin(chain: string, asset: string, amount: string): boolean {
@@ -230,7 +239,7 @@ export class CbpGuard {
     } catch (err) {
       return this.emit(this.unavailable(payTo, chain, err instanceof CbpError ? err.code : "check_failed"));
     }
-    if (res.paid) this.spentUsd += CHECK_COST_USD;
+    if (res.paid) this.paidChecks += 1;
     if (res.status !== 200) return this.emit(this.unavailable(payTo, chain, `http_${res.status}`));
     const body = res.body as Record<string, unknown> | null;
     const verdict = body?.verdict;

@@ -7,6 +7,7 @@
  */
 import { decodePaymentRequiredHeader, encodePaymentSignatureHeader } from "@x402/core/http";
 import type { PaymentPayload, PaymentRequired } from "@x402/core/types";
+import { USER_AGENT } from "./version.js";
 
 export const DEFAULT_CBP_BASE_URL = "https://certbeforepay.com";
 /** CertBeforePay's own payTo (Base). Payments to it are never wallet-checked by the guard. */
@@ -141,7 +142,12 @@ export class CbpClient {
     try {
       return await this.fetchImpl(`${this.baseUrl}${path}`, {
         method: "POST",
-        headers: { "content-type": "application/json", accept: "application/json", ...headers },
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json",
+          ...headers,
+          "user-agent": USER_AGENT,
+        },
         body: JSON.stringify(body),
         signal: ctrl.signal,
       });

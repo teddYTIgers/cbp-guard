@@ -42,7 +42,7 @@ const guard = withCbpGuard(client, {
   failMode: "block", // "block" | "allow"
   knownRecipients: [], // up to 50 0x addresses, or a function returning them
   minAmountUsd: 0, // skip the check for USDC payments below this amount (0 = check all)
-  dailyBudgetUsd: undefined, // cap on wallet-check spend per UTC day (no cap by default)
+  dailyBudgetUsd: 1, // USD cap on wallet-check spend per UTC day; Infinity removes the cap
   cacheTtlMs: 5 * 60_000, // cache real verdicts per address; max 15 minutes; 0 disables
   baseUrl: "https://certbeforepay.com",
   onDecision: (d) => console.log(d.action, d.verdict, d.reasons),
@@ -55,7 +55,72 @@ await fetchWithPay("https://seller.example/paid"); // throws "... cbp-guard: blo
 - Each wallet check is paid by x402 from **your own wallet** (the client you pass in), at $0.01. The guard checks CertBeforePay's 402 before signing: the payTo must be CertBeforePay's and the amount must not exceed $0.01 (gate $0.02, peer challenge $0.01; override with `maxPriceAtomic`).
 - Payments to CertBeforePay's own payTo (`0xfcae7e8373264acf7f7d00e9d0171671dcdb095c`) are never checked, so you do not pay us to check us (and the check's own payment does not loop).
 - Only real verdicts are cached, for minutes. Failures such as a `503` are never cached.
+- Every request to CertBeforePay carries `User-Agent: cbp-guard/<version>`.
 - Legacy x402 v1 packages and wrapping a viem account (transfers, approvals) are not supported in this release.
+
+### Daily budget
+
+By default the guard spends at most $1.00 in USDC per UTC day on wallet checks. When the budget is used up, the guard treats the check as having no usable answer, so with the default `failMode: "block"` payments are refused until the next UTC day. Cached verdicts and skipped payments do not count against the budget. Set `dailyBudgetUsd` to raise or lower the cap, or to `Infinity` to remove it. The budget is kept in memory per guard, so it starts again when your process restarts.
+
+## Examples
+
+### @x402/fetch
+
+```ts
+import { x402Client } from "@x402/core/client";
+import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
+import { wrapFetchWithPayment } from "@x402/fetch";
+import { withCbpGuard } from "cbp-guard";
+import { privateKeyToAccount } from "viem/accounts";
+
+const account = privateKeyToAccount(process.env.MY_AGENT_KEY as `0x${string}`);
+const client = new x402Client().register("eip155:8453", new ExactEvmScheme(toClientEvmSigner(account)));
+withCbpGuard(client, { knownRecipients: ["0x1111111111111111111111111111111111111111"] });
+
+const fetchWithPay = wrapFetchWithPayment(fetch, client);
+try {
+  const res = await fetchWithPay("https://seller.example/paid");
+  console.log(res.status, await res.text());
+} catch (err) {
+  console.error((err as Error).message); // "... cbp-guard: block (...)" when the guard stopped it
+}
+```
+
+### Coinbase AgentKit
+
+AgentKit's built-in `x402ActionProvider` builds its own x402 client inside each action and has no hook option, so cbp-guard cannot attach to it. Instead, add a custom action that builds a guarded client from the AgentKit wallet, and use it in place of the built-in x402 actions.
+
+```ts
+import { AgentKit, CdpEvmWalletProvider, customActionProvider, type EvmWalletProvider } from "@coinbase/agentkit";
+import { x402Client } from "@x402/core/client";
+import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
+import { wrapFetchWithPayment } from "@x402/fetch";
+import { withCbpGuard } from "cbp-guard";
+import { z } from "zod";
+
+// Reads CDP_API_KEY_ID, CDP_API_KEY_SECRET and CDP_WALLET_SECRET from the environment.
+const walletProvider = await CdpEvmWalletProvider.configureWithWallet({ networkId: "base-mainnet" });
+
+const guardedPaidFetch = customActionProvider<EvmWalletProvider>({
+  name: "guarded_paid_fetch",
+  description: "Fetch a URL and pay its x402 402 only after cbp-guard checks the payTo.",
+  schema: z.object({ url: z.string().url() }),
+  invoke: async (wallet, args: { url: string }) => {
+    const client = new x402Client().register("eip155:8453", new ExactEvmScheme(toClientEvmSigner(wallet.toSigner())));
+    withCbpGuard(client);
+    try {
+      const res = await wrapFetchWithPayment(fetch, client)(args.url);
+      return `${res.status} ${await res.text()}`;
+    } catch (err) {
+      return `Payment refused: ${(err as Error).message}`;
+    }
+  },
+});
+
+const agentkit = await AgentKit.from({ walletProvider, actionProviders: [guardedPaidFetch] });
+```
+
+This example was type-checked against `@coinbase/agentkit` 0.10.4 and `@x402/*` 2.32.0 (zod 3, as AgentKit uses). It has not been run against a live CDP wallet.
 
 ## Use the MCP server
 
@@ -85,6 +150,11 @@ Example client config:
 
 - `CBP_GUARD_PRIVATE_KEY` (required): the private key of **your** wallet that pays for each call via x402 (USDC on Base). The server refuses to start without it. Use a dedicated low-balance wallet. The key is read from the environment only; it is never logged, returned or written to disk, and neither is any payment signature.
 - `CBP_GUARD_BASE_URL` (optional): default `https://certbeforepay.com`.
+
+### Use a dedicated low-balance wallet
+
+Use a dedicated wallet that holds only a small USDC balance for `CBP_GUARD_PRIVATE_KEY`, not your main wallet. Top it up as needed. If the key ever leaks, only that small balance is at risk.
+
 - CertBeforePay's own `POST /mcp` is discovery-only; this stdio server is the one that performs paid calls.
 
 ## Development

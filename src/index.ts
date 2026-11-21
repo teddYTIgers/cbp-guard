@@ -16,6 +16,7 @@ export {
   CbpGuard,
   CbpGuardError,
   DEFAULT_CACHE_TTL_MS,
+  DEFAULT_DAILY_BUDGET_USD,
   type GuardDecision,
   type GuardOptions,
   type HookableClient,
@@ -25,4 +26,4 @@ export {
   withCbpGuard,
 } from "./guard.js";
 export { createMcpServer, KEY_ENV } from "./mcp.js";
-export { VERSION } from "./version.js";
+export { USER_AGENT, VERSION } from "./version.js";
