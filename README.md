@@ -42,7 +42,7 @@ const guard = withCbpGuard(client, {
   failMode: "block", // "block" | "allow"
   knownRecipients: [], // up to 50 0x addresses, or a function returning them
   minAmountUsd: 0, // skip the check for USDC payments below this amount (0 = check all)
-  dailyBudgetUsd: 1, // USD cap on wallet-check spend per UTC day; Infinity removes the cap
+  dailyBudgetUsd: 2.5, // USD cap on wallet-check spend per UTC day; Infinity removes the cap
   cacheTtlMs: 5 * 60_000, // cache real verdicts per address; max 15 minutes; 0 disables
   baseUrl: "https://certbeforepay.com",
   onDecision: (d) => console.log(d.action, d.verdict, d.reasons),
@@ -63,7 +63,7 @@ await fetchWithPay("https://seller.example/paid"); // throws "... cbp-guard: blo
 
 ### Daily budget
 
-By default the guard spends at most $1.00 in USDC per UTC day on wallet checks. The amount is reserved before each check's payment is signed, so checks running in parallel cannot go over the cap, and a signed payment counts even if the answer that comes back is unusable. When the budget is used up, the guard treats the check as having no usable answer, so with the default `failMode: "block"` payments are refused until the next UTC day. Cached verdicts and skipped payments do not count against the budget. Set `dailyBudgetUsd` to raise or lower the cap, or to `Infinity` to remove it. The budget is kept in memory per guard, so it starts again when your process restarts.
+By default the guard spends at most $2.50 in USDC per UTC day on wallet checks. The amount is reserved before each check's payment is signed, so checks running in parallel cannot go over the cap, and a signed payment counts even if the answer that comes back is unusable. When the budget is used up, the guard treats the check as having no usable answer, so with the default `failMode: "block"` payments are refused until the next UTC day. Cached verdicts and skipped payments do not count against the budget. Set `dailyBudgetUsd` to raise or lower the cap, or to `Infinity` to remove it. The budget is kept in memory per guard, so it starts again when your process restarts.
 
 ## Examples
 
@@ -153,7 +153,7 @@ Example client config:
 
 - `CBP_GUARD_PRIVATE_KEY` (required): the private key of **your** wallet that pays for each call via x402 (USDC on Base). The server refuses to start without it. Use a dedicated low-balance wallet. The key is read from the environment only; it is never logged, returned or written to disk, and neither is any payment signature. If the key is invalid, the error says so without repeating it.
 - `CBP_GUARD_BASE_URL` (optional): default `https://certbeforepay.com`. It must use https (plain http only for localhost).
-- `CBP_GUARD_DAILY_BUDGET_USD` (optional): the most this server process spends per UTC day, default `1.00`. The price of each paid call is reserved against it before signing; when it is used up, tools return a `budget_exhausted` error and nothing is signed until the next UTC day. Set it to `Infinity` to remove the cap. It is kept in memory, so it starts again when the server restarts.
+- `CBP_GUARD_DAILY_BUDGET_USD` (optional): the most this server process spends per UTC day, default `2.50`. The price of each paid call is reserved against it before signing; when it is used up, tools return a `budget_exhausted` error and nothing is signed until the next UTC day. Set it to `Infinity` to remove the cap. It is kept in memory, so it starts again when the server restarts.
 - CertBeforePay's own `POST /mcp` is discovery-only; this stdio server is the one that performs paid calls.
 
 ### Use a dedicated low-balance wallet

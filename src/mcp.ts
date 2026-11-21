@@ -2,7 +2,7 @@
  * Stdio MCP server: tools wallet_check, gate and peer_challenge.
  * Each tool calls the live CertBeforePay HTTP endpoint and pays with the caller's own key
  * (CBP_GUARD_PRIVATE_KEY) via x402. The key is never logged or returned. Spend is capped per
- * UTC day per process (CBP_GUARD_DAILY_BUDGET_USD, default $1.00), reserved before signing.
+ * UTC day per process (CBP_GUARD_DAILY_BUDGET_USD, default $2.50), reserved before signing.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -144,7 +144,7 @@ export async function paymentClientFromEnv(env: NodeJS.ProcessEnv = process.env)
   return new x402Client().register("eip155:8453", new ExactEvmScheme(toClientEvmSigner(account)));
 }
 
-/** Daily spend cap for the MCP server from CBP_GUARD_DAILY_BUDGET_USD (default $1.00; "Infinity" = no cap). */
+/** Daily spend cap for the MCP server from CBP_GUARD_DAILY_BUDGET_USD (default $2.50; "Infinity" = no cap). */
 export function budgetFromEnv(env: NodeJS.ProcessEnv = process.env, now?: () => number): SpendBudget {
   const raw = (env[BUDGET_ENV] ?? "").trim();
   const usd = raw === "" ? DEFAULT_DAILY_BUDGET_USD : Number(raw);

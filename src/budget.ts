@@ -8,7 +8,7 @@
  */
 import { CbpError } from "./errors.js";
 
-export const DEFAULT_DAILY_BUDGET_USD = 1;
+export const DEFAULT_DAILY_BUDGET_USD = 2.5;
 
 export interface Reservation {
   day: string;

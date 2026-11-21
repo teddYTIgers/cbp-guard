@@ -15,7 +15,7 @@ Environment:
                          (x402, USDC on Base). Never logged.
   CBP_GUARD_BASE_URL     Optional; default https://certbeforepay.com (https only; http only for localhost)
   CBP_GUARD_DAILY_BUDGET_USD
-                         Optional; spend cap per UTC day for this process, default 1.00; Infinity = no cap
+                         Optional; spend cap per UTC day for this process, default 2.50; Infinity = no cap
 `;
 
 /** Only our own messages, and never anything that looks like key material (hex key or long number). */

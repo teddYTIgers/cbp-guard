@@ -26,7 +26,7 @@ import { fakeCbp, fakePaymentClient, paymentRequired, SELLER, USDC_BASE, walletB
 const read = (p: string) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const paidCalls = (calls: { headers: Record<string, string> }[]) =>
   calls.filter((c) => "payment-signature" in c.headers).length;
-const addr = (i: number) => `0x${i.toString(16).padStart(40, "a")}`;
+const addr = (i: number) => `0x${(i + 1).toString(16).padStart(40, "0")}`;
 
 /** A fetch whose CBP 402 offers the given requirement fields; the paid retry answers clear. */
 function custom402(over: Record<string, unknown>) {
@@ -46,28 +46,28 @@ function hangingBody(status = 200) {
 }
 
 describe("CBG1-1 budget is reserved before signing and counts every signed payment", () => {
-  it("150 parallel checks on distinct payTos never exceed the $1.00 default (exactly 100 paid)", async () => {
+  it("400 parallel checks on distinct payTos never exceed the $2.50 default (exactly 250 paid)", async () => {
     const cbp = fakeCbp(() => ({ status: 200, body: walletBody("clear") }));
     const pay = fakePaymentClient();
     const guard = withCbpGuard(pay, { fetch: cbp.fetch, cacheTtlMs: 0 });
-    const decisions = await Promise.all(Array.from({ length: 150 }, (_, i) => guard.decide({ payTo: addr(i) })));
-    expect(paidCalls(cbp.calls)).toBe(100);
-    expect(guard.budget.spentAtomic()).toBe(1_000_000n);
-    expect(decisions.filter((d) => d.action === "allow")).toHaveLength(100);
+    const decisions = await Promise.all(Array.from({ length: 400 }, (_, i) => guard.decide({ payTo: addr(i) })));
+    expect(paidCalls(cbp.calls)).toBe(250);
+    expect(guard.budget.spentAtomic()).toBe(2_500_000n);
+    expect(decisions.filter((d) => d.action === "allow")).toHaveLength(250);
     const refused = decisions.filter((d) => d.action === "block");
-    expect(refused).toHaveLength(50);
+    expect(refused).toHaveLength(150);
     for (const d of refused) expect(d).toMatchObject({ verdict: "unavailable", detail: "daily_budget_reached" });
   });
 
-  it("150 parallel hook calls through the x402 client also stay at 100 paid checks", async () => {
+  it("400 parallel hook calls through the x402 client also stay at 250 paid checks", async () => {
     const cbp = fakeCbp(() => ({ status: 200, body: walletBody("clear") }));
     const pay = fakePaymentClient();
     withCbpGuard(pay, { fetch: cbp.fetch, cacheTtlMs: 0 });
     const results = await Promise.allSettled(
-      Array.from({ length: 150 }, (_, i) => pay.createPaymentPayload(paymentRequired({ payTo: addr(i) }))),
+      Array.from({ length: 400 }, (_, i) => pay.createPaymentPayload(paymentRequired({ payTo: addr(i) }))),
     );
-    expect(paidCalls(cbp.calls)).toBe(100);
-    expect(results.filter((r) => r.status === "rejected")).toHaveLength(50);
+    expect(paidCalls(cbp.calls)).toBe(250);
+    expect(results.filter((r) => r.status === "rejected")).toHaveLength(150);
   });
 
   it("a signed check whose answer is malformed still counts", async () => {
@@ -157,9 +157,9 @@ describe("CBG1-2 MCP server daily budget (CBP_GUARD_DAILY_BUDGET_USD)", () => {
     return { client, cbp, pay };
   }
 
-  it("defaults to $1.00, accepts overrides and Infinity, rejects junk", () => {
-    expect(budgetFromEnv({}).capAtomic).toBe(1_000_000n);
-    expect(budgetFromEnv({ [BUDGET_ENV]: "" }).capAtomic).toBe(1_000_000n);
+  it("defaults to $2.50, accepts overrides and Infinity, rejects junk", () => {
+    expect(budgetFromEnv({}).capAtomic).toBe(2_500_000n);
+    expect(budgetFromEnv({ [BUDGET_ENV]: "" }).capAtomic).toBe(2_500_000n);
     expect(budgetFromEnv({ [BUDGET_ENV]: "0.25" }).capAtomic).toBe(250_000n);
     expect(budgetFromEnv({ [BUDGET_ENV]: "Infinity" }).capAtomic).toBeNull();
     for (const bad of ["abc", "-1", "NaN"]) expect(() => budgetFromEnv({ [BUDGET_ENV]: bad })).toThrow(BUDGET_ENV);

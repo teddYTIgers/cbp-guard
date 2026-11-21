@@ -61,7 +61,7 @@ export interface GuardOptions extends Omit<CbpClientOptions, "paymentClient"> {
   /** Skip the check for payments below this many USD (USDC only). Default 0: check every payment. */
   minAmountUsd?: number;
   /**
-   * Cap on wallet-check spend per UTC day in USD (per guard instance, in memory). Default $1.00.
+   * Cap on wallet-check spend per UTC day in USD (per guard instance, in memory). Default $2.50.
    * The amount is reserved before each check's payment is signed (safe under concurrency) and a
    * signed payment counts at its signed amount even if the answer is unusable. Cache hits and
    * skips cost nothing. When reached -> failMode. Infinity removes the cap.

@@ -41,7 +41,7 @@
         },
         {
           "name": "CBP_GUARD_DAILY_BUDGET_USD",
-          "description": "Spend cap per UTC day for this server process in USD (default 1.00; Infinity for no cap).",
+          "description": "Spend cap per UTC day for this server process in USD (default 2.50; Infinity for no cap).",
           "isRequired": false,
           "isSecret": false
         }

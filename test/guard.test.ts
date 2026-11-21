@@ -222,30 +222,30 @@ describe("skip, budget, minimum, cache", () => {
     await s.pay.createPaymentPayload(paymentRequired());
   });
 
-  it("dailyBudgetUsd defaults to $1.00: 100 paid checks per UTC day, then failMode (block)", async () => {
+  it("dailyBudgetUsd defaults to $2.50: 250 paid checks per UTC day, then failMode (block)", async () => {
     let now = Date.UTC(2026, 10, 21, 12);
     const s = setup(walletBody("clear"), { cacheTtlMs: 0, now: () => now });
-    for (let i = 0; i < 100; i++) await s.pay.createPaymentPayload(paymentRequired());
+    for (let i = 0; i < 250; i++) await s.pay.createPaymentPayload(paymentRequired());
     const err = await s.pay.createPaymentPayload(paymentRequired()).catch((e) => e);
     expect(err).toBeInstanceOf(CbpGuardError);
     expect(err.decision).toMatchObject({ action: "block", verdict: "unavailable", detail: "daily_budget_reached" });
-    expect(s.cbp.calls.filter((c) => "payment-signature" in c.headers)).toHaveLength(100);
+    expect(s.cbp.calls.filter((c) => "payment-signature" in c.headers)).toHaveLength(250);
     now += 24 * 3600_000;
     await s.pay.createPaymentPayload(paymentRequired());
-    expect(s.cbp.calls.filter((c) => "payment-signature" in c.headers)).toHaveLength(101);
+    expect(s.cbp.calls.filter((c) => "payment-signature" in c.headers)).toHaveLength(251);
   });
 
   it("with the default budget, cache hits and CertBeforePay payTo skips cost nothing", async () => {
     const s = setup(walletBody("clear"));
-    for (let i = 0; i < 150; i++) await s.pay.createPaymentPayload(paymentRequired());
-    for (let i = 0; i < 150; i++) await s.pay.createPaymentPayload(paymentRequired({ payTo: CBP_PAYTO }));
+    for (let i = 0; i < 300; i++) await s.pay.createPaymentPayload(paymentRequired());
+    for (let i = 0; i < 300; i++) await s.pay.createPaymentPayload(paymentRequired({ payTo: CBP_PAYTO }));
     expect(s.cbp.calls.filter((c) => "payment-signature" in c.headers)).toHaveLength(1);
   });
 
   it("dailyBudgetUsd is overridable: Infinity removes the cap, failMode allow lets payments through", async () => {
     const s = setup(walletBody("clear"), { cacheTtlMs: 0, dailyBudgetUsd: Number.POSITIVE_INFINITY });
-    for (let i = 0; i < 120; i++) await s.pay.createPaymentPayload(paymentRequired());
-    expect(s.cbp.calls.filter((c) => "payment-signature" in c.headers)).toHaveLength(120);
+    for (let i = 0; i < 300; i++) await s.pay.createPaymentPayload(paymentRequired());
+    expect(s.cbp.calls.filter((c) => "payment-signature" in c.headers)).toHaveLength(300);
     const z = setup(walletBody("clear"), { dailyBudgetUsd: 0, failMode: "allow" });
     await z.pay.createPaymentPayload(paymentRequired());
     expect(z.cbp.calls).toHaveLength(0);
