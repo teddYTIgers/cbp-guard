@@ -1,0 +1,56 @@
+# npm publish via npm trusted publishing (OIDC). NOT USED YET.
+#
+# This workflow stays unused until the owner (1) configures the trusted publisher on npmjs.com for
+# package `cbp-guard` / account `teddytigers` / repo `teddYTIgers/cbp-guard` / workflow `publish.yml`,
+# and (2) approves the first publish. There is no NPM_TOKEN: npm exchanges the GitHub OIDC token for a
+# short-lived publish credential. It never runs on push to main: manual dispatch or a v* tag only.
+name: publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "publish cbp-guard" to confirm the owner approved this publish'
+        required: true
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: npm publish (trusted publishing, provenance)
+    runs-on: ubuntu-24.04
+    if: github.repository == 'teddYTIgers/cbp-guard' && (github.event_name != 'workflow_dispatch' || github.event.inputs.confirm == 'publish cbp-guard')
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+      - name: npm CLI with trusted publishing support (>= 11.5.1)
+        run: npm install -g npm@11.21.1
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+      - name: Tag matches package.json version
+        if: github.event_name == 'push'
+        run: test "refs/tags/v$(node -p "require('./package.json').version")" = "$GITHUB_REF"
+      - name: Publish with provenance (OIDC, no token)
+        run: npm publish --provenance --access public
