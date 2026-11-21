@@ -1,7 +1,114 @@
 # cbp-guard
 
-Pre-sign x402 hook and stdio MCP server that checks a payTo with [CertBeforePay](https://certbeforepay.com) before signing.
+cbp-guard checks the wallet your AI agent is about to pay, before it signs, and stops payments to known scam or lookalike wallets. Each wallet check is $0.01 in USDC on Base via x402.
 
-Work in progress. Not published to npm or the MCP Registry yet.
+> **Status:** not published yet. The first npm publish and the MCP Registry listing have not happened and need the owner's approval (see [Owner's remaining steps](#owners-remaining-steps)).
 
-License: MIT.
+It has two parts:
+
+- **A pre-sign hook** for the official x402 v2 client (`@x402/core`, used by `@x402/fetch` and `@x402/axios`). It runs in `onBeforePaymentCreation`: before your agent signs a 402 payment, it asks [CertBeforePay](https://certbeforepay.com) `POST /v1/wallet/check` about the `payTo`.
+- **A stdio MCP server** (`npx cbp-guard mcp`) with the tools `wallet_check`, `gate` and `peer_challenge`.
+
+## What the guard does
+
+| CertBeforePay answer                                                                                                                                   | Default                                                         | Option                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- | ---------------------------------------- |
+| `block`                                                                                                                                                | refuse; throws `cbp-guard: block (<reason>)`, nothing is signed | none (always refused)                    |
+| `caution` (including `address_poisoning_lookalike`)                                                                                                    | refuse                                                          | `onCaution: "block" \| "allow" \| "ask"` |
+| `clear`                                                                                                                                                | allow the payment                                               |                                          |
+| no usable answer (CertBeforePay down, timeout, `503` stale/misconfigured list, the check's own payment failed, malformed answer, daily budget reached) | refuse                                                          | `failMode: "block" \| "allow"`           |
+
+The defaults are fail-closed. Allowing a caution or a missing answer has to be switched on explicitly.
+
+A **lookalike** is an address that starts and ends like a known address (same first 4 and last 4 hex characters) but is a different address, a common address-poisoning trick. CertBeforePay compares against well-known addresses (such as USDC on Base) and against the addresses you pass as `known_recipients` (your address book or the payTo you used last time, up to 50). When the guard stops a payment, the error carries the verdict, the reasons and, for a lookalike, the matched address, its label and a note.
+
+The wallet check is a risk signal (scam/phishing lists and lookalikes), not an OFAC or sanctions screen, and not a guarantee. CertBeforePay itself never stops a payment; only this guard does, and only if you install it.
+
+## Use the hook
+
+```ts
+import { x402Client } from "@x402/core/client";
+import { wrapFetchWithPayment } from "@x402/fetch";
+import { ExactEvmScheme, toClientEvmSigner } from "@x402/evm";
+import { privateKeyToAccount } from "viem/accounts";
+import { withCbpGuard } from "cbp-guard";
+
+const account = privateKeyToAccount(process.env.MY_AGENT_KEY as `0x${string}`);
+const client = new x402Client().register("eip155:8453", new ExactEvmScheme(toClientEvmSigner(account)));
+
+const guard = withCbpGuard(client, {
+  // all optional; these are the defaults unless noted
+  onCaution: "block", // "block" | "allow" | "ask" (with ask: async (decision) => boolean)
+  failMode: "block", // "block" | "allow"
+  knownRecipients: [], // up to 50 0x addresses, or a function returning them
+  minAmountUsd: 0, // skip the check for USDC payments below this amount (0 = check all)
+  dailyBudgetUsd: undefined, // cap on wallet-check spend per UTC day (no cap by default)
+  cacheTtlMs: 5 * 60_000, // cache real verdicts per address; max 15 minutes; 0 disables
+  baseUrl: "https://certbeforepay.com",
+  onDecision: (d) => console.log(d.action, d.verdict, d.reasons),
+});
+
+const fetchWithPay = wrapFetchWithPayment(fetch, client);
+await fetchWithPay("https://seller.example/paid"); // throws "... cbp-guard: block (...)" when stopped
+```
+
+- Each wallet check is paid by x402 from **your own wallet** (the client you pass in), at $0.01. The guard checks CertBeforePay's 402 before signing: the payTo must be CertBeforePay's and the amount must not exceed $0.01 (gate $0.02, peer challenge $0.01; override with `maxPriceAtomic`).
+- Payments to CertBeforePay's own payTo (`0xfcae7e8373264acf7f7d00e9d0171671dcdb095c`) are never checked, so you do not pay us to check us (and the check's own payment does not loop).
+- Only real verdicts are cached, for minutes. Failures such as a `503` are never cached.
+- Legacy x402 v1 packages and wrapping a viem account (transfers, approvals) are not supported in this release.
+
+## Use the MCP server
+
+```bash
+CBP_GUARD_PRIVATE_KEY=0x... npx cbp-guard mcp
+```
+
+Example client config:
+
+```json
+{
+  "mcpServers": {
+    "cbp-guard": {
+      "command": "npx",
+      "args": ["-y", "cbp-guard", "mcp"],
+      "env": { "CBP_GUARD_PRIVATE_KEY": "<your low-balance wallet key>" }
+    }
+  }
+}
+```
+
+| Tool                                                                         | Endpoint                  | Price |
+| ---------------------------------------------------------------------------- | ------------------------- | ----- |
+| `wallet_check` (`address`, optional `chain`, `resource`, `known_recipients`) | `POST /v1/wallet/check`   | $0.01 |
+| `gate` (`skill`, `skills`, `mcp` or `content`)                               | `POST /v1/gate`           | $0.02 |
+| `peer_challenge` (`certificate`, optional `min_score`, `require_tier`)       | `POST /v1/peer/challenge` | $0.01 |
+
+- `CBP_GUARD_PRIVATE_KEY` (required): the private key of **your** wallet that pays for each call via x402 (USDC on Base). The server refuses to start without it. Use a dedicated low-balance wallet. The key is read from the environment only; it is never logged, returned or written to disk, and neither is any payment signature.
+- `CBP_GUARD_BASE_URL` (optional): default `https://certbeforepay.com`.
+- CertBeforePay's own `POST /mcp` is discovery-only; this stdio server is the one that performs paid calls.
+
+## Development
+
+```bash
+npm ci
+npm run typecheck && npm run lint && npm test && npm run build
+```
+
+All CertBeforePay HTTP calls in the tests are mocked; the tests never reach production or spend USDC. Test keys are generated at run time and never funded.
+
+## Publishing (not done yet)
+
+`.github/workflows/publish.yml` publishes with npm **trusted publishing** (GitHub OIDC, `npm publish --provenance`), with no npm token anywhere. It never runs on a push to `main`; it runs only by manual dispatch (with a confirmation phrase) or a `v*.*.*` tag. It stays unused until the owner sets up the trusted publisher and approves the first publish.
+
+## Owner's remaining steps
+
+These are for the owner; the bots do not do them.
+
+1. Deploy CertBeforePay `main` `77771359` (the lookalike signal and `known_recipients`), if it is not live yet.
+2. On npmjs.com, as `teddytigers` (2FA on), configure **trusted publishing** for package `cbp-guard`: GitHub repository `teddYTIgers/cbp-guard`, workflow `publish.yml`, environment `npm-publish`. Optionally add a required reviewer to the `npm-publish` environment in the repo settings.
+3. Approve this README and the `server.json` wording, then approve the **first** `npm publish` (treat it as permanent; npm unpublish is limited).
+4. MCP Registry: run `mcp-publisher login github` (device code in the browser) and publish `io.github.teddYTIgers/certbeforepay` from `server.json` after the npm package exists.
+
+## License
+
+MIT. This package contains no scam-list data; lists stay on the CertBeforePay server.

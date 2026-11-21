@@ -1,0 +1,81 @@
+{
+  "name": "cbp-guard",
+  "version": "0.1.0",
+  "description": "Pre-sign x402 hook and stdio MCP server that checks a payTo with CertBeforePay before signing",
+  "license": "MIT",
+  "mcpName": "io.github.teddYTIgers/certbeforepay",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "cbp-guard": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "server.json"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/teddYTIgers/cbp-guard.git"
+  },
+  "homepage": "https://certbeforepay.com",
+  "bugs": {
+    "url": "https://github.com/teddYTIgers/cbp-guard/issues"
+  },
+  "keywords": [
+    "x402",
+    "mcp",
+    "wallet",
+    "scam",
+    "address-poisoning",
+    "agent",
+    "payments",
+    "certbeforepay"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "biome check .",
+    "test": "vitest run",
+    "prepublishOnly": "npm run typecheck && npm run lint && npm test && npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@x402/core": "^2.32.0",
+    "@x402/evm": "^2.32.0",
+    "viem": "^2.58.4",
+    "zod": "^4.6.7"
+  },
+  "peerDependencies": {
+    "@x402/axios": "^2.32.0",
+    "@x402/fetch": "^2.32.0"
+  },
+  "peerDependenciesMeta": {
+    "@x402/axios": {
+      "optional": true
+    },
+    "@x402/fetch": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.8",
+    "@types/node": "26.6.6",
+    "@x402/fetch": "2.32.0",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "typescript": "5.9.3",
+    "vitest": "5.1.1"
+  }
+}

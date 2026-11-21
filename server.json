@@ -1,0 +1,45 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.teddYTIgers/certbeforepay",
+  "title": "cbp-guard",
+  "description": "Check an x402 payTo for scam/phishing and address-poisoning lookalikes before paying. $0.01/check.",
+  "version": "0.1.0",
+  "websiteUrl": "https://certbeforepay.com",
+  "repository": {
+    "url": "https://github.com/teddYTIgers/cbp-guard",
+    "source": "github",
+    "id": "1466903766"
+  },
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "cbp-guard",
+      "version": "0.1.0",
+      "runtimeHint": "npx",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "value": "mcp"
+        }
+      ],
+      "environmentVariables": [
+        {
+          "name": "CBP_GUARD_PRIVATE_KEY",
+          "description": "Private key (0x + 64 hex) of YOUR wallet that pays for each check via x402 (USDC on Base). Use a low-balance wallet.",
+          "isRequired": true,
+          "isSecret": true
+        },
+        {
+          "name": "CBP_GUARD_BASE_URL",
+          "description": "CertBeforePay base URL (default https://certbeforepay.com).",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}
