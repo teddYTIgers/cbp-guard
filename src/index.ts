@@ -1,4 +1,7 @@
+export { DEFAULT_DAILY_BUDGET_USD, type Reservation, SpendBudget } from "./budget.js";
 export {
+  CBP_ASSET,
+  CBP_NETWORK,
   CBP_PAYTO,
   CbpClient,
   type CbpClientOptions,
@@ -9,14 +12,16 @@ export {
   DEFAULT_CBP_BASE_URL,
   DEFAULT_MAX_PRICE_ATOMIC,
   KNOWN_RECIPIENTS_MAX,
+  MAX_RESOURCE_LENGTH,
+  MAX_RESPONSE_BYTES,
   normalizeKnownRecipients,
   type PaymentClientLike,
+  sanitizeResource,
 } from "./client.js";
 export {
   CbpGuard,
   CbpGuardError,
   DEFAULT_CACHE_TTL_MS,
-  DEFAULT_DAILY_BUDGET_USD,
   type GuardDecision,
   type GuardOptions,
   type HookableClient,

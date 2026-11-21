@@ -1,16 +1,21 @@
 /**
  * Stdio MCP server: tools wallet_check, gate and peer_challenge.
  * Each tool calls the live CertBeforePay HTTP endpoint and pays with the caller's own key
- * (CBP_GUARD_PRIVATE_KEY) via x402. The key is never logged or returned.
+ * (CBP_GUARD_PRIVATE_KEY) via x402. The key is never logged or returned. Spend is capped per
+ * UTC day per process (CBP_GUARD_DAILY_BUDGET_USD, default $1.00), reserved before signing.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { DEFAULT_DAILY_BUDGET_USD, SpendBudget } from "./budget.js";
 import { CbpClient, CbpError, KNOWN_RECIPIENTS_MAX, type PaymentClientLike } from "./client.js";
 import { VERSION } from "./version.js";
 
 export const KEY_ENV = "CBP_GUARD_PRIVATE_KEY";
 export const BASE_URL_ENV = "CBP_GUARD_BASE_URL";
+export const BUDGET_ENV = "CBP_GUARD_DAILY_BUDGET_USD";
+
+const INVALID_KEY = `cbp-guard: ${KEY_ENV} is not a valid secp256k1 private key`;
 
 const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/, "0x + 40 hex");
 
@@ -124,19 +129,36 @@ export async function paymentClientFromEnv(env: NodeJS.ProcessEnv = process.env)
   if (!/^0x[0-9a-fA-F]{64}$/.test(key)) {
     throw new Error(`cbp-guard: set ${KEY_ENV} to the private key (0x + 64 hex) of the wallet that pays for checks`);
   }
+  let account: ReturnType<typeof import("viem/accounts").privateKeyToAccount>;
   const [{ x402Client }, { ExactEvmScheme, toClientEvmSigner }, { privateKeyToAccount }] = await Promise.all([
     import("@x402/core/client"),
     import("@x402/evm"),
     import("viem/accounts"),
   ]);
-  const account = privateKeyToAccount(key as `0x${string}`);
+  try {
+    account = privateKeyToAccount(key as `0x${string}`);
+  } catch {
+    // viem's message can include the rejected key (as a number); never pass it on.
+    throw new Error(INVALID_KEY);
+  }
   return new x402Client().register("eip155:8453", new ExactEvmScheme(toClientEvmSigner(account)));
+}
+
+/** Daily spend cap for the MCP server from CBP_GUARD_DAILY_BUDGET_USD (default $1.00; "Infinity" = no cap). */
+export function budgetFromEnv(env: NodeJS.ProcessEnv = process.env, now?: () => number): SpendBudget {
+  const raw = (env[BUDGET_ENV] ?? "").trim();
+  const usd = raw === "" ? DEFAULT_DAILY_BUDGET_USD : Number(raw);
+  if (Number.isNaN(usd) || usd < 0) {
+    throw new Error(`cbp-guard: ${BUDGET_ENV} must be a number >= 0 (or Infinity for no cap)`);
+  }
+  return new SpendBudget(usd, now);
 }
 
 /** `cbp-guard mcp`: refuses to start without a key (every tool is paid). */
 export async function runMcp(env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  const budget = budgetFromEnv(env);
   const paymentClient = await paymentClientFromEnv(env);
-  const client = new CbpClient({ paymentClient, baseUrl: env[BASE_URL_ENV] || undefined });
+  const client = new CbpClient({ paymentClient, baseUrl: env[BASE_URL_ENV] || undefined, budget });
   const server = createMcpServer(client);
   await server.connect(new StdioServerTransport());
 }

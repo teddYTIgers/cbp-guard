@@ -7,6 +7,7 @@
  * no usable answer -> refuse (failMode "block").
  */
 import type { BeforePaymentCreationHook, PaymentCreationContext } from "@x402/core/client";
+import { DEFAULT_DAILY_BUDGET_USD, SpendBudget } from "./budget.js";
 import {
   CBP_PAYTO,
   CbpClient,
@@ -60,8 +61,10 @@ export interface GuardOptions extends Omit<CbpClientOptions, "paymentClient"> {
   /** Skip the check for payments below this many USD (USDC only). Default 0: check every payment. */
   minAmountUsd?: number;
   /**
-   * Cap on wallet-check spend per UTC day in USD (per guard instance, in memory). Default $1.00
-   * (100 paid checks); cache hits and skips cost nothing. When reached -> failMode. Infinity removes the cap.
+   * Cap on wallet-check spend per UTC day in USD (per guard instance, in memory). Default $1.00.
+   * The amount is reserved before each check's payment is signed (safe under concurrency) and a
+   * signed payment counts at its signed amount even if the answer is unusable. Cache hits and
+   * skips cost nothing. When reached -> failMode. Infinity removes the cap.
    */
   dailyBudgetUsd?: number;
   /** Cache real verdicts per address for this long. Default 5 minutes, max 15 minutes, 0 disables. */
@@ -74,10 +77,9 @@ export interface GuardOptions extends Omit<CbpClientOptions, "paymentClient"> {
   now?: () => number;
 }
 
-export const DEFAULT_DAILY_BUDGET_USD = 1;
+export { DEFAULT_DAILY_BUDGET_USD };
 export const DEFAULT_CACHE_TTL_MS = 5 * 60_000;
 export const MAX_CACHE_TTL_MS = 15 * 60_000;
-const CHECK_COST_USD = 0.01;
 /** USDC contracts whose 6-decimal amounts minAmountUsd understands (Base, Base Sepolia). */
 const USDC_ASSETS: Record<string, string> = {
   "eip155:8453": "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913",
@@ -112,20 +114,21 @@ export class CbpGuard {
   private readonly cache = new Map<string, CacheEntry>();
   private readonly skip: Set<string>;
   private readonly ttl: number;
-  private readonly budget: number;
-  private spendDay = "";
-  private paidChecks = 0;
+  readonly budget: SpendBudget;
 
   constructor(paymentClient: PaymentClientLike, opts: GuardOptions = {}) {
-    this.client = new CbpClient({ ...opts, paymentClient });
+    let budget: SpendBudget;
+    try {
+      budget = new SpendBudget(opts.dailyBudgetUsd ?? DEFAULT_DAILY_BUDGET_USD, () => (opts.now ?? Date.now)());
+    } catch {
+      throw new CbpError("invalid_input", "dailyBudgetUsd must be a number >= 0 (Infinity for no cap)");
+    }
+    this.budget = budget;
+    this.client = new CbpClient({ ...opts, paymentClient, budget });
     this.opts = opts;
     this.skip = new Set([CBP_PAYTO, ...this.client.cbpPayTo, ...(opts.skipPayTo ?? [])].map((a) => a.toLowerCase()));
     const ttl = opts.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS;
     this.ttl = Math.max(0, Math.min(ttl, MAX_CACHE_TTL_MS));
-    const budget = opts.dailyBudgetUsd ?? DEFAULT_DAILY_BUDGET_USD;
-    if (typeof budget !== "number" || Number.isNaN(budget) || budget < 0)
-      throw new CbpError("invalid_input", "dailyBudgetUsd must be a number >= 0 (Infinity for no cap)");
-    this.budget = budget;
   }
 
   private now(): number {
@@ -139,13 +142,9 @@ export class CbpGuard {
   }
 
   private budgetAllows(): boolean {
-    const cap = this.budget;
-    const day = new Date(this.now()).toISOString().slice(0, 10);
-    if (day !== this.spendDay) {
-      this.spendDay = day;
-      this.paidChecks = 0;
-    }
-    return (this.paidChecks + 1) * CHECK_COST_USD <= cap + 1e-9;
+    // Cheap early check (no CertBeforePay call when today's cap is already used up); the
+    // authoritative reservation happens in CbpClient right before signing.
+    return this.budget.fits(this.client.maxPriceFor("/v1/wallet/check"));
   }
 
   private belowMin(chain: string, asset: string, amount: string): boolean {
@@ -237,9 +236,11 @@ export class CbpGuard {
     try {
       res = await this.client.walletCheck({ address: payTo, chain, resource: input.resource, knownRecipients: known });
     } catch (err) {
+      if (err instanceof CbpError && err.code === "budget_exhausted") {
+        return this.emit(this.unavailable(payTo, chain, "daily_budget_reached"));
+      }
       return this.emit(this.unavailable(payTo, chain, err instanceof CbpError ? err.code : "check_failed"));
     }
-    if (res.paid) this.paidChecks += 1;
     if (res.status !== 200) return this.emit(this.unavailable(payTo, chain, `http_${res.status}`));
     const body = res.body as Record<string, unknown> | null;
     const verdict = body?.verdict;

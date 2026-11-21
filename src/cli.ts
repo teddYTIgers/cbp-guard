@@ -13,8 +13,17 @@ Usage:
 Environment:
   CBP_GUARD_PRIVATE_KEY  Required for "mcp": private key of YOUR wallet that pays for each check
                          (x402, USDC on Base). Never logged.
-  CBP_GUARD_BASE_URL     Optional; default https://certbeforepay.com
+  CBP_GUARD_BASE_URL     Optional; default https://certbeforepay.com (https only; http only for localhost)
+  CBP_GUARD_DAILY_BUDGET_USD
+                         Optional; spend cap per UTC day for this process, default 1.00; Infinity = no cap
 `;
+
+/** Only our own messages, and never anything that looks like key material (hex key or long number). */
+export function safeMessage(err: unknown): string {
+  const msg = err instanceof Error ? err.message : "";
+  if (!msg.startsWith("cbp-guard:") || /[0-9a-fA-F]{32,}|\d{20,}/.test(msg)) return "cbp-guard: failed to start";
+  return msg;
+}
 
 export async function main(argv: string[]): Promise<number> {
   const cmd = argv[0];
@@ -27,8 +36,7 @@ export async function main(argv: string[]): Promise<number> {
       await runMcp();
       return 0;
     } catch (err) {
-      // Messages are ours and never contain the key.
-      process.stderr.write(`${err instanceof Error ? err.message : "cbp-guard: failed to start"}\n`);
+      process.stderr.write(`${safeMessage(err)}\n`);
       return 1;
     }
   }

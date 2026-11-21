@@ -35,7 +35,13 @@
         },
         {
           "name": "CBP_GUARD_BASE_URL",
-          "description": "CertBeforePay base URL (default https://certbeforepay.com).",
+          "description": "CertBeforePay base URL (default https://certbeforepay.com). Must be https.",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "CBP_GUARD_DAILY_BUDGET_USD",
+          "description": "Spend cap per UTC day for this server process in USD (default 1.00; Infinity for no cap).",
           "isRequired": false,
           "isSecret": false
         }

@@ -52,15 +52,18 @@ const fetchWithPay = wrapFetchWithPayment(fetch, client);
 await fetchWithPay("https://seller.example/paid"); // throws "... cbp-guard: block (...)" when stopped
 ```
 
-- Each wallet check is paid by x402 from **your own wallet** (the client you pass in), at $0.01. The guard checks CertBeforePay's 402 before signing: the payTo must be CertBeforePay's and the amount must not exceed $0.01 (gate $0.02, peer challenge $0.01; override with `maxPriceAtomic`).
+- Each wallet check is paid by x402 from **your own wallet** (the client you pass in), at $0.01. The guard checks CertBeforePay's 402 before signing: the payTo must be CertBeforePay's, the payment must be USDC on Base (`eip155:8453`), and the amount must not exceed $0.01 (gate $0.02, peer challenge $0.01; override with `maxPriceAtomic`).
 - Payments to CertBeforePay's own payTo (`0xfcae7e8373264acf7f7d00e9d0171671dcdb095c`) are never checked, so you do not pay us to check us (and the check's own payment does not loop).
 - Only real verdicts are cached, for minutes. Failures such as a `503` are never cached.
 - Every request to CertBeforePay carries `User-Agent: cbp-guard/<version>`.
+- The guard sends CertBeforePay the payTo, the chain, your `known_recipients` (if any) and the seller's resource URL without its query string or fragment (origin and path only).
+- `baseUrl` must use https; plain http is accepted only for localhost.
+- Each request to CertBeforePay has one deadline (15 seconds by default) that covers reading the whole answer, and answers over 64 KB are rejected. Either way there is no usable answer, so `failMode` applies.
 - Legacy x402 v1 packages and wrapping a viem account (transfers, approvals) are not supported in this release.
 
 ### Daily budget
 
-By default the guard spends at most $1.00 in USDC per UTC day on wallet checks. When the budget is used up, the guard treats the check as having no usable answer, so with the default `failMode: "block"` payments are refused until the next UTC day. Cached verdicts and skipped payments do not count against the budget. Set `dailyBudgetUsd` to raise or lower the cap, or to `Infinity` to remove it. The budget is kept in memory per guard, so it starts again when your process restarts.
+By default the guard spends at most $1.00 in USDC per UTC day on wallet checks. The amount is reserved before each check's payment is signed, so checks running in parallel cannot go over the cap, and a signed payment counts even if the answer that comes back is unusable. When the budget is used up, the guard treats the check as having no usable answer, so with the default `failMode: "block"` payments are refused until the next UTC day. Cached verdicts and skipped payments do not count against the budget. Set `dailyBudgetUsd` to raise or lower the cap, or to `Infinity` to remove it. The budget is kept in memory per guard, so it starts again when your process restarts.
 
 ## Examples
 
@@ -148,14 +151,14 @@ Example client config:
 | `gate` (`skill`, `skills`, `mcp` or `content`)                               | `POST /v1/gate`           | $0.02 |
 | `peer_challenge` (`certificate`, optional `min_score`, `require_tier`)       | `POST /v1/peer/challenge` | $0.01 |
 
-- `CBP_GUARD_PRIVATE_KEY` (required): the private key of **your** wallet that pays for each call via x402 (USDC on Base). The server refuses to start without it. Use a dedicated low-balance wallet. The key is read from the environment only; it is never logged, returned or written to disk, and neither is any payment signature.
-- `CBP_GUARD_BASE_URL` (optional): default `https://certbeforepay.com`.
+- `CBP_GUARD_PRIVATE_KEY` (required): the private key of **your** wallet that pays for each call via x402 (USDC on Base). The server refuses to start without it. Use a dedicated low-balance wallet. The key is read from the environment only; it is never logged, returned or written to disk, and neither is any payment signature. If the key is invalid, the error says so without repeating it.
+- `CBP_GUARD_BASE_URL` (optional): default `https://certbeforepay.com`. It must use https (plain http only for localhost).
+- `CBP_GUARD_DAILY_BUDGET_USD` (optional): the most this server process spends per UTC day, default `1.00`. The price of each paid call is reserved against it before signing; when it is used up, tools return a `budget_exhausted` error and nothing is signed until the next UTC day. Set it to `Infinity` to remove the cap. It is kept in memory, so it starts again when the server restarts.
+- CertBeforePay's own `POST /mcp` is discovery-only; this stdio server is the one that performs paid calls.
 
 ### Use a dedicated low-balance wallet
 
 Use a dedicated wallet that holds only a small USDC balance for `CBP_GUARD_PRIVATE_KEY`, not your main wallet. Top it up as needed. If the key ever leaks, only that small balance is at risk.
-
-- CertBeforePay's own `POST /mcp` is discovery-only; this stdio server is the one that performs paid calls.
 
 ## Development
 
@@ -168,16 +171,17 @@ All CertBeforePay HTTP calls in the tests are mocked; the tests never reach prod
 
 ## Publishing (not done yet)
 
-`.github/workflows/publish.yml` publishes with npm **trusted publishing** (GitHub OIDC, `npm publish --provenance`), with no npm token anywhere. It never runs on a push to `main`; it runs only by manual dispatch (with a confirmation phrase) or a `v*.*.*` tag. It stays unused until the owner sets up the trusted publisher and approves the first publish.
+`.github/workflows/publish.yml` publishes with npm **trusted publishing** (GitHub OIDC, `npm publish --provenance`), with no npm token anywhere. It never runs on a push to `main`; it runs only by manual dispatch (with a confirmation phrase) or a `v*.*.*` tag, and its job uses the protected environment `npm-publish`, so each run waits for the owner's approval once that environment exists (step 2 below). The confirmation phrase is not an approval control; the environment's required reviewer is. It stays unused until the owner sets up the environment and the trusted publisher and approves the first publish.
 
 ## Owner's remaining steps
 
 These are for the owner; the bots do not do them.
 
 1. Deploy CertBeforePay `main` `77771359` (the lookalike signal and `known_recipients`), if it is not live yet.
-2. On npmjs.com, as `teddytigers` (2FA on), configure **trusted publishing** for package `cbp-guard`: GitHub repository `teddYTIgers/cbp-guard`, workflow `publish.yml`, environment `npm-publish`. Optionally add a required reviewer to the `npm-publish` environment in the repo settings.
-3. Approve this README and the `server.json` wording, then approve the **first** `npm publish` (treat it as permanent; npm unpublish is limited).
-4. MCP Registry: run `mcp-publisher login github` (device code in the browser) and publish `io.github.teddYTIgers/certbeforepay` from `server.json` after the npm package exists.
+2. **Required, before step 3:** in the repo settings (Settings → Environments), create the environment `npm-publish` with required reviewer `teddYTIgers` and a deployment rule that allows only tags matching `v*.*.*`. Without it, anyone with write access to the repo could publish by pushing a tag.
+3. On npmjs.com, as `teddytigers` (2FA on), configure **trusted publishing** for package `cbp-guard`: GitHub repository `teddYTIgers/cbp-guard`, workflow `publish.yml`, environment `npm-publish` (bound to that environment, so only runs it approved can publish).
+4. Approve this README and the `server.json` wording, then approve the **first** `npm publish` (treat it as permanent; npm unpublish is limited).
+5. MCP Registry: run `mcp-publisher login github` (device code in the browser) and publish `io.github.teddYTIgers/certbeforepay` from `server.json` after the npm package exists.
 
 ## License
 
