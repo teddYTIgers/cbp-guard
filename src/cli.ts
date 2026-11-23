@@ -11,8 +11,8 @@ Usage:
   cbp-guard --version  Print the version
 
 Environment:
-  CBP_GUARD_PRIVATE_KEY  Required for "mcp": private key of YOUR wallet that pays for each check
-                         (x402, USDC on Base). Never logged.
+  CBP_GUARD_PRIVATE_KEY  Required for paid tool calls: private key of YOUR wallet that pays for each
+                         check (x402, USDC on Base). Never logged. "mcp" starts without it.
   CBP_GUARD_BASE_URL     Optional; default https://certbeforepay.com (https only; http only for localhost)
   CBP_GUARD_DAILY_BUDGET_USD
                          Optional; spend cap per UTC day for this process, default 2.50; Infinity = no cap

@@ -4,7 +4,7 @@ cbp-guard checks the wallet your AI agent is about to pay, before it signs, and 
 
 ```bash
 npm install cbp-guard        # library: the pre-sign hook
-npx cbp-guard mcp            # stdio MCP server (needs CBP_GUARD_PRIVATE_KEY)
+npx cbp-guard mcp            # stdio MCP server (tool calls need CBP_GUARD_PRIVATE_KEY)
 ```
 
 It has two parts:
@@ -154,7 +154,7 @@ Example client config:
 | `gate` (`skill`, `skills`, `mcp` or `content`)                               | `POST /v1/gate`           | $0.02 |
 | `peer_challenge` (`certificate`, optional `min_score`, `require_tier`)       | `POST /v1/peer/challenge` | $0.01 |
 
-- `CBP_GUARD_PRIVATE_KEY` (required): the private key of **your** wallet that pays for each call via x402 (USDC on Base). The server refuses to start without it. Use a dedicated low-balance wallet. The key is read from the environment only; it is never logged, returned or written to disk, and neither is any payment signature. If the key is invalid, the error says so without repeating it.
+- `CBP_GUARD_PRIVATE_KEY` (required for tool calls): the private key of **your** wallet that pays for each call via x402 (USDC on Base). The server starts without it, so clients and directories can list the tools; until it is set, each tool call returns an error asking for it, and nothing is sent or paid. Use a dedicated low-balance wallet. The key is read from the environment only; it is never logged, returned or written to disk, and neither is any payment signature. If the key is invalid, the error says so without repeating it.
 - `CBP_GUARD_BASE_URL` (optional): default `https://certbeforepay.com`. It must use https; plain http is accepted only for `localhost`, `127.0.0.1` and `[::1]` (the MCP server has no `allowInsecureHttp` setting).
 - `CBP_GUARD_DAILY_BUDGET_USD` (optional): the most this server process spends per UTC day, default `2.50`. The price of each paid call is reserved against it before signing; when it is used up, tools return a `budget_exhausted` error and nothing is signed until the next UTC day. Set it to `Infinity` to remove the cap. It is kept in memory, so it starts again when the server restarts.
 - CertBeforePay's own `POST /mcp` is discovery-only; this stdio server is the one that performs paid calls.

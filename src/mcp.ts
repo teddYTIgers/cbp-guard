@@ -1,11 +1,14 @@
 /**
  * Stdio MCP server: tools wallet_check, gate and peer_challenge.
  * Each tool calls the live CertBeforePay HTTP endpoint and pays with the caller's own key
- * (CBP_GUARD_PRIVATE_KEY) via x402. The key is never logged or returned. Spend is capped per
+ * (CBP_GUARD_PRIVATE_KEY) via x402. The key is never logged or returned. The server starts without a
+ * key (so directories can list the tools); the key is read on the first tool call, and a missing or
+ * invalid key makes that call return an error before any network request. Spend is capped per
  * UTC day per process (CBP_GUARD_DAILY_BUDGET_USD, default $2.50), reserved before signing.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { z } from "zod";
 import { DEFAULT_DAILY_BUDGET_USD, SpendBudget } from "./budget.js";
 import { CbpClient, CbpError, KNOWN_RECIPIENTS_MAX, type PaymentClientLike } from "./client.js";
@@ -16,6 +19,9 @@ export const BASE_URL_ENV = "CBP_GUARD_BASE_URL";
 export const BUDGET_ENV = "CBP_GUARD_DAILY_BUDGET_USD";
 
 const INVALID_KEY = `cbp-guard: ${KEY_ENV} is not a valid secp256k1 private key`;
+const SET_KEY = `cbp-guard: set ${KEY_ENV} to the private key (0x + 64 hex) of the wallet that pays for checks`;
+/** The only key errors a tool result may carry (fixed text, never the key). */
+const KEY_ERRORS = new Set([INVALID_KEY, SET_KEY]);
 
 const address = z.string().regex(/^0x[0-9a-fA-F]{40}$/, "0x + 40 hex");
 
@@ -53,12 +59,17 @@ function result(status: number, body: unknown): ToolResult {
 }
 
 function failure(err: unknown): ToolResult {
-  const msg = err instanceof CbpError ? err.message : "cbp-guard: request failed";
+  const keyMsg = err instanceof Error && KEY_ERRORS.has(err.message) ? err.message : undefined;
+  const msg = keyMsg ?? (err instanceof CbpError ? err.message : "cbp-guard: request failed");
   return { content: [{ type: "text", text: msg }], isError: true };
 }
 
-/** Build the MCP server around a CbpClient (tests pass a mocked one). */
-export function createMcpServer(client: CbpClient): McpServer {
+/**
+ * Build the MCP server around a CbpClient (tests pass a mocked one). ``ready`` runs before every
+ * CertBeforePay call; runMcp uses it to load the key, so a call without a valid key fails before any
+ * network request.
+ */
+export function createMcpServer(client: CbpClient, ready: () => Promise<void> = async () => {}): McpServer {
   const server = new McpServer({ name: "cbp-guard", version: VERSION });
 
   server.registerTool(
@@ -70,6 +81,7 @@ export function createMcpServer(client: CbpClient): McpServer {
     },
     async (args) => {
       try {
+        await ready();
         const r = await client.walletCheck({
           address: args.address,
           chain: args.chain,
@@ -95,6 +107,7 @@ export function createMcpServer(client: CbpClient): McpServer {
       if (Object.keys(body).length === 0)
         return failure(new CbpError("invalid_input", "give skill, skills, mcp or content"));
       try {
+        await ready();
         const r = await client.gate(body);
         return result(r.status, r.body);
       } catch (err) {
@@ -113,6 +126,7 @@ export function createMcpServer(client: CbpClient): McpServer {
     async (args) => {
       const body = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined));
       try {
+        await ready();
         const r = await client.peerChallenge(body);
         return result(r.status, r.body);
       } catch (err) {
@@ -127,7 +141,7 @@ export function createMcpServer(client: CbpClient): McpServer {
 export async function paymentClientFromEnv(env: NodeJS.ProcessEnv = process.env): Promise<PaymentClientLike> {
   const key = (env[KEY_ENV] ?? "").trim();
   if (!/^0x[0-9a-fA-F]{64}$/.test(key)) {
-    throw new Error(`cbp-guard: set ${KEY_ENV} to the private key (0x + 64 hex) of the wallet that pays for checks`);
+    throw new Error(SET_KEY);
   }
   let account: ReturnType<typeof import("viem/accounts").privateKeyToAccount>;
   const [{ x402Client }, { ExactEvmScheme, toClientEvmSigner }, { privateKeyToAccount }] = await Promise.all([
@@ -154,11 +168,24 @@ export function budgetFromEnv(env: NodeJS.ProcessEnv = process.env, now?: () => 
   return new SpendBudget(usd, now);
 }
 
-/** `cbp-guard mcp`: refuses to start without a key (every tool is paid). */
-export async function runMcp(env: NodeJS.ProcessEnv = process.env): Promise<void> {
+/**
+ * `cbp-guard mcp`: starts without a key so tools/list works (e.g. for directories). The budget and base
+ * URL are still checked at startup. The x402 payment client is built from CBP_GUARD_PRIVATE_KEY on the
+ * first tool call; until a valid key is set, every tool call returns the set-key error and nothing is sent.
+ */
+export async function runMcp(env: NodeJS.ProcessEnv = process.env, transport?: Transport): Promise<void> {
   const budget = budgetFromEnv(env);
-  const paymentClient = await paymentClientFromEnv(env);
+  let loaded: PaymentClientLike | undefined;
+  const ready = async () => {
+    loaded ??= await paymentClientFromEnv(env); // throws SET_KEY / INVALID_KEY; a failure is not cached
+  };
+  const paymentClient: PaymentClientLike = {
+    async createPaymentPayload(pr) {
+      await ready();
+      return (loaded as PaymentClientLike).createPaymentPayload(pr);
+    },
+  };
   const client = new CbpClient({ paymentClient, baseUrl: env[BASE_URL_ENV] || undefined, budget });
-  const server = createMcpServer(client);
-  await server.connect(new StdioServerTransport());
+  const server = createMcpServer(client, ready);
+  await server.connect(transport ?? new StdioServerTransport());
 }
