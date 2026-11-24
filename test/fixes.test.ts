@@ -339,12 +339,10 @@ describe("CBG1-7 no key material in any output", () => {
     for (const key of outOfRange) {
       const err = await paymentClientFromEnv({ [KEY_ENV]: key }).catch((e) => e);
       expect(err.message).toBe(`cbp-guard: ${KEY_ENV} is not a valid secp256k1 private key`);
-      process.env[KEY_ENV] = key;
-      out = "";
-      expect(await main(["mcp"])).toBe(1);
-      expect(out.trim()).toBe(`cbp-guard: ${KEY_ENV} is not a valid secp256k1 private key`);
-      expect(out).not.toMatch(/[0-9a-fA-F]{32,}|\d{20,}/);
+      expect(err.message).not.toMatch(/[0-9a-fA-F]{32,}|\d{20,}/);
+      // 0.1.2: `cbp-guard mcp` starts without a valid key; the tool-call result is covered in keyless.test.ts
     }
+    expect(out).not.toMatch(/[0-9a-fA-F]{32,}|\d{20,}/);
   });
 
   it("an invalid budget with a valid key refuses to start without printing the key", async () => {

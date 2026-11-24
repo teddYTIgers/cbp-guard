@@ -3,7 +3,7 @@ import { generatePrivateKey } from "viem/accounts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { main } from "../src/cli.js";
 import { withCbpGuard } from "../src/guard.js";
-import { KEY_ENV } from "../src/mcp.js";
+import { KEY_ENV, paymentClientFromEnv } from "../src/mcp.js";
 import { FAKE_SIGNATURE, fakeCbp, fakePaymentClient, LOOKALIKE_BODY, paymentRequired, walletBody } from "./helpers.js";
 
 let out = "";
@@ -40,14 +40,13 @@ describe("no key, signature or env value in output", () => {
     expect(out).toBe("");
   });
 
-  it("cli mcp without a key prints a hint and exits 1; with a malformed key it never echoes it", async () => {
-    expect(await main(["mcp"])).toBe(1);
-    expect(out).toContain(KEY_ENV);
+  it("the key loader hints without a key; a malformed key is never echoed (0.1.2: mcp starts keyless)", async () => {
+    const noKey = await paymentClientFromEnv({}).catch((e) => e);
+    expect(noKey.message).toContain(KEY_ENV);
     const secretish = `0x${"c".repeat(63)}z`;
-    process.env[KEY_ENV] = secretish;
-    out = "";
-    expect(await main(["mcp"])).toBe(1);
-    expect(out).not.toContain(secretish);
+    const bad = await paymentClientFromEnv({ [KEY_ENV]: secretish }).catch((e) => e);
+    expect(bad.message).not.toContain(secretish);
+    expect(bad.message).not.toContain("c".repeat(20));
     expect(out).not.toContain("c".repeat(20));
   });
 
