@@ -33,6 +33,24 @@ describe("stdio MCP server tools", () => {
     ]);
   });
 
+  it("peer_challenge describes every input, when to use it and what it returns (0.1.3)", async () => {
+    const { client } = await connect(() => ({ status: 200 }));
+    const pc = (await client.listTools()).tools.find((t) => t.name === "peer_challenge") as {
+      description: string;
+      inputSchema: { properties: Record<string, { description?: string; minimum?: number; maximum?: number }> };
+    };
+    const props = pc.inputSchema.properties;
+    expect(Object.keys(props).sort()).toEqual(["certificate", "min_score", "require_tier"]);
+    for (const k of Object.keys(props)) expect(props[k].description, k).toBeTruthy();
+    expect(props.min_score.description).toContain("default 60");
+    expect([props.min_score.minimum, props.min_score.maximum]).toEqual([0, 100]);
+    expect(props.require_tier.description).toContain("provisional, attested or endorsed");
+    expect(pc.description).toContain("before you trust or pay it");
+    expect(pc.description).toContain("ACCEPT");
+    expect(pc.description).toContain("REJECT");
+    expect(pc.description).toContain("Paid: $0.01 in USDC on Base via x402 from your key.");
+  });
+
   it("wallet_check returns the mocked verdict and forwards known_recipients", async () => {
     const { client, cbp } = await connect(() => ({ status: 200, body: LOOKALIKE_BODY }));
     const r = parse(

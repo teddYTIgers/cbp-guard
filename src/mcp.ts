@@ -44,9 +44,24 @@ export const gateShape = {
 };
 
 export const peerChallengeShape = {
-  certificate: z.record(z.string(), z.unknown()).describe("The peer's CertBeforePay certificate"),
-  min_score: z.number().int().min(0).max(100).optional(),
-  require_tier: z.string().optional(),
+  certificate: z
+    .record(z.string(), z.unknown())
+    .describe(
+      "The peer's CertBeforePay certificate: the signed JSON object (payload, signature, ...) returned as certificate by POST /v1/self-check or POST /v1/cert/issue",
+    ),
+  min_score: z
+    .number()
+    .int()
+    .min(0)
+    .max(100)
+    .optional()
+    .describe("Optional minimum certificate score, 0-100; default 60. A lower score returns REJECT"),
+  require_tier: z
+    .string()
+    .optional()
+    .describe(
+      "Optional minimum tier: provisional, attested or endorsed (lowest to highest). A lower tier returns REJECT; any other value always returns REJECT",
+    ),
 };
 
 type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
@@ -120,7 +135,7 @@ export function createMcpServer(client: CbpClient, ready: () => Promise<void> = 
     "peer_challenge",
     {
       description:
-        "Verify a peer's CertBeforePay certificate against a policy with POST /v1/peer/challenge. Paid: $0.01 in USDC on Base via x402 from your key.",
+        "Verify another agent's CertBeforePay certificate before you trust or pay it, with POST /v1/peer/challenge. Returns decision ACCEPT only if the certificate is signed by CertBeforePay, not expired and not revoked, its score is at least min_score, and its tier meets require_tier; otherwise REJECT. A certificate whose subject is on the scam list gets 403 scam_wallet_blocked instead. Also returns valid, reason, the peer's subject, tier, score, grade, expires and serial, and the policy applied. Paid: $0.01 in USDC on Base via x402 from your key.",
       inputSchema: peerChallengeShape,
     },
     async (args) => {
