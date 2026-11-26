@@ -33,6 +33,28 @@ describe("stdio MCP server tools", () => {
     ]);
   });
 
+  it("peer_challenge describes every input, when to use it and what it returns (0.1.3)", async () => {
+    const { client } = await connect(() => ({ status: 200 }));
+    const pc = (await client.listTools()).tools.find((t) => t.name === "peer_challenge") as {
+      description: string;
+      inputSchema: { properties: Record<string, { description?: string; minimum?: number; maximum?: number }> };
+    };
+    const props = pc.inputSchema.properties;
+    expect(Object.keys(props).sort()).toEqual(["certificate", "min_score", "require_tier"]);
+    for (const k of Object.keys(props)) expect(props[k].description, k).toBeTruthy();
+    expect(props.min_score.description).toContain("default 60");
+    expect([props.min_score.minimum, props.min_score.maximum]).toEqual([0, 100]);
+    expect(props.require_tier.description).toContain("provisional, attested or endorsed");
+    expect(pc.description).toContain("before you trust or pay it");
+    expect(pc.description).toContain("ACCEPT");
+    expect(pc.description).toContain("REJECT");
+    expect(pc.description).toContain("Paid: $0.01 in USDC on Base via x402 from your key.");
+    expect(pc.description).toContain("normally refused with 403 scam_wallet_blocked, and never gets ACCEPT");
+    expect(pc.description).not.toContain("gets 403");
+    expect(pc.description).toContain("at least min_score and its tier");
+    expect(pc.description).not.toContain("at least min_score, and its tier");
+  });
+
   it("wallet_check returns the mocked verdict and forwards known_recipients", async () => {
     const { client, cbp } = await connect(() => ({ status: 200, body: LOOKALIKE_BODY }));
     const r = parse(
@@ -78,6 +100,25 @@ describe("stdio MCP server tools", () => {
       isError?: boolean;
     };
     expect(bad.isError).toBe(true);
+  });
+
+  it("peer_challenge rejects an empty require_tier and forwards a valid tier (CBG4-2)", async () => {
+    const { client, cbp } = await connect(() => ({ status: 200, body: { decision: "ACCEPT" } }));
+    const empty = (await client.callTool({
+      name: "peer_challenge",
+      arguments: { certificate: { payload: {} }, require_tier: "" },
+    })) as { isError?: boolean };
+    expect(empty.isError).toBe(true);
+    expect(cbp.calls).toHaveLength(0);
+    const ok = parse(
+      await client.callTool({
+        name: "peer_challenge",
+        arguments: { certificate: { payload: {} }, require_tier: "attested" },
+      }),
+    );
+    expect(ok.isError).toBe(false);
+    expect(JSON.parse(ok.text)).toEqual({ http_status: 200, body: { decision: "ACCEPT" } });
+    expect(cbp.calls[0].body).toEqual({ certificate: { payload: {} }, require_tier: "attested" });
   });
 
   it("an upstream 503 is returned as an error result", async () => {

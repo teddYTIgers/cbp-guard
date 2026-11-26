@@ -1,6 +1,6 @@
 {
   "name": "cbp-guard",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Pre-sign x402 hook and stdio MCP server that checks a payTo with CertBeforePay before signing",
   "license": "MIT",
   "mcpName": "io.github.teddYTIgers/certbeforepay",
